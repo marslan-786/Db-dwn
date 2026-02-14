@@ -2,7 +2,9 @@ import os
 import shutil
 import base64
 import re
+import requests
 from io import BytesIO
+from datetime import datetime  # 🔥 یہ ٹائم کنورٹ کرنے کے لیے شامل کیا ہے
 from flask import Flask, send_file, render_template_string
 from pymongo import MongoClient
 
@@ -11,7 +13,7 @@ app = Flask(__name__)
 # --- ⚙️ کنکشن سٹرنگ ---
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo:XrGKBDHzBwUtYpIgSVolqCFRKGbsUblH@caboose.proxy.rlwy.net:51078/")
 
-# --- 🌐 ایچ ٹی ایم ایل ڈیش بورڈ (مع سرچ بار) ---
+# --- 🌐 ایچ ٹی ایم ایل ڈیش بورڈ ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en" dir="ltr">
@@ -177,77 +179,111 @@ def download_user_data(db_name, coll_name, bot_id, target_id):
     folders = {
         "pictures": os.path.join(base_folder, "pictures"),
         "voices": os.path.join(base_folder, "voices"),
-        "links": os.path.join(base_folder, "links") # ویڈیوز اور لنکس اب اس میں جائیں گے
+        "links": os.path.join(base_folder, "links"),
+        "chats": os.path.join(base_folder, "chats") 
     }
 
     if os.path.exists(base_folder): shutil.rmtree(base_folder)
     for f_path in folders.values(): os.makedirs(f_path, exist_ok=True)
 
     query = {"bot_id": bot_id, "chat_id": target_id}
-    cursor = collection.find(query)
+    cursor = collection.find(query).sort("timestamp", 1) 
     has_data = False
     
-    # لنکس والی فائل کا پاتھ
-    links_file_path = os.path.join(folders["links"], "media_links.txt")
+    links_file_path = os.path.join(folders["links"], "catbox_and_media_links.txt")
+    chat_file_path = os.path.join(folders["chats"], "chat_history.txt")
 
     for doc in cursor:
-        msg_type = doc.get("type", "unknown")
-        content = doc.get("content", "")
-        msg_id = doc.get("message_id", "unknown")
-        mime_type = doc.get("mime", "")
+        msg_type = str(doc.get("type", "unknown")).lower()
+        content = str(doc.get("content", "")).strip()
+        msg_id = str(doc.get("message_id", "unknown"))
+        is_from_me = doc.get("is_from_me", False)
+        sender_name = str(doc.get("sender_name", "User"))
+        
+        # 🔥 ٹائم کنورٹر (Original Time Generator)
+        raw_ts = doc.get("timestamp")
+        time_str = "Unknown Time"
+        
+        if raw_ts:
+            if isinstance(raw_ts, datetime):
+                # اگر ڈیٹا بیس میں پہلے ہی Date object ہے
+                time_str = raw_ts.strftime("%Y-%m-%d %I:%M %p")
+            elif isinstance(raw_ts, (int, float)):
+                # اگر Unix Timestamp ہے
+                ts_val = float(raw_ts)
+                if ts_val > 1e11:  # اگر ملی سیکنڈز میں ہے تو سیکنڈز میں لائیں
+                    ts_val /= 1000.0
+                try:
+                    time_str = datetime.fromtimestamp(ts_val).strftime("%Y-%m-%d %I:%M %p")
+                except:
+                    time_str = str(raw_ts)
+            else:
+                time_str = str(raw_ts)
 
         if not content or content == "MEDIA_WAITING":
             continue
 
-        try:
-            # ---> 1. اگر میسج میں کوئی ٹیکسٹ لنک ہو (http/https)
-            if msg_type == "text":
-                urls = re.findall(r'(https?://[^\s]+)', content)
-                if urls:
-                    with open(links_file_path, "a", encoding="utf-8") as lf:
-                        lf.write(f"📝 [TEXT MESSAGE] ID: {msg_id}\n")
-                        for url in urls:
-                            lf.write(f"🔗 {url}\n")
-                        lf.write("-" * 40 + "\n")
-                    has_data = True
-                continue
+        has_data = True
 
-            # ---> 2. Base64 میڈیا (چھوٹی تصاویر اور وائسز) -> یہ فائلز بنیں گی
-            if content.startswith("data:"):
-                target_folder = folders["pictures"] if ("image" in msg_type or "sticker" in msg_type) else folders["voices"]
+        try:
+            # ---------------------------------------------------------
+            # 1. 💬 چیٹ ہسٹری (اصل ٹائم کے ساتھ)
+            # ---------------------------------------------------------
+            if msg_type in ["text", "conversation", "extendedtext"] or (not content.startswith("http") and not content.startswith("data:")):
+                sender = "Bot (Me)" if is_from_me else sender_name
+                with open(chat_file_path, "a", encoding="utf-8") as cf:
+                    cf.write(f"[{time_str}] {sender}: {content}\n")
+
+            # ---------------------------------------------------------
+            # 2. 🔥 EXACT CATBOX HUNTER (خاص کر ویڈیوز کے لیے)
+            # ---------------------------------------------------------
+            if "catbox" in content.lower() or "http" in content.lower():
+                url_matches = re.findall(r'(https?://[^\s"\'>]+)', content)
+                for actual_url in url_matches:
+                    
+                    # خاص طور پر کیٹ باکس کی ویڈیو کو ہائی لائٹ کرنا
+                    if "catbox" in actual_url.lower() and (".mp4" in actual_url.lower() or "video" in msg_type):
+                        icon = "🎬 [CATBOX VIDEO (Direct Link)]"
+                    elif "catbox" in actual_url.lower():
+                        icon = "🔥 [CATBOX FILE]"
+                    else:
+                        icon = f"🔗 [{msg_type.upper()} LINK]"
+                    
+                    with open(links_file_path, "a", encoding="utf-8") as lf:
+                        lf.write(f"{icon} | Date: {time_str} | ID: {msg_id}\n")
+                        lf.write(f"URL: {actual_url}\n")
+                        lf.write("-" * 60 + "\n")
+
+            # ---------------------------------------------------------
+            # 3. 🖼️ Base64 Media 
+            # ---------------------------------------------------------
+            if "data:" in content and ";base64," in content:
+                target_folder = folders["pictures"] if msg_type in ["image", "sticker"] else folders["voices"]
                 
-                header, encoded_data = content.split(",", 1)
-                ext = header.split(";")[0].split("/")[1]
-                if ext == "octet-stream": ext = "bin"
+                header, encoded_data = content.split(";base64,", 1)
+                encoded_data = encoded_data.strip()
+                encoded_data += "=" * ((4 - len(encoded_data) % 4) % 4)
+                
+                ext = header.split("/")[-1]
+                if ext == "octet-stream" or not ext: 
+                    ext = "jpg" if msg_type in ["image", "sticker"] else "ogg"
                 
                 file_path = os.path.join(target_folder, f"{msg_id}.{ext}")
                 with open(file_path, "wb") as f:
                     f.write(base64.b64decode(encoded_data))
-                has_data = True
-
-            # ---> 3. HTTP میڈیا لنکس (Catbox کی ویڈیوز، بڑی آڈیو یا ڈاکومنٹس) -> یہ لنکس فائل میں جائیں گے
-            elif content.startswith("http"):
-                with open(links_file_path, "a", encoding="utf-8") as lf:
-                    # آئیکون سلیکٹ کریں کہ یہ کون سا میڈیا ہے
-                    icon = "🎬" if msg_type == "video" else ("🎵" if msg_type == "audio" else ("🖼️" if msg_type == "image" else "📄"))
-                    lf.write(f"{icon} [{msg_type.upper()}] ID: {msg_id}\n")
-                    lf.write(f"🔗 Link: {content}\n")
-                    lf.write("-" * 40 + "\n")
-                has_data = True
 
         except Exception as e:
             print(f"⚠️ Error processing {msg_id}: {e}")
 
-    # اگر کوئی ڈیٹا نہ ملے
     if not has_data:
         shutil.rmtree(base_folder)
-        return f"<div style='background:#121212; color:#fff; text-align:center; padding:50px; font-family:sans-serif;'><h2>اس Chat ID کے پاس کوئی میڈیا یا لنکس نہیں ہیں۔</h2><a href='/db/{db_name}/{coll_name}/{bot_id}' style='color:#00d2ff;'>واپس جائیں</a></div>", 404
+        return f"<div style='background:#121212; color:#fff; text-align:center; padding:50px; font-family:sans-serif;'><h2>اس Chat ID کا کوئی ڈیٹا نہیں ملا۔</h2></div>", 404
 
-    # اگر لنکس والی فائل خالی ہے تو اسے ڈیلیٹ کر دیں
     if os.path.exists(links_file_path) and os.path.getsize(links_file_path) == 0:
         os.remove(links_file_path)
+    if os.path.exists(chat_file_path) and os.path.getsize(chat_file_path) == 0:
+        os.remove(chat_file_path)
 
-    # زپ بنانا (اب یہ ایک سیکنڈ میں بنے گی کیونکہ ڈاؤنلوڈنگ نہیں ہو رہی)
     shutil.make_archive(base_folder, 'zip', base_folder)
     zip_path = f"{base_folder}.zip"
 

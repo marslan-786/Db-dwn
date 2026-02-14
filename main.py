@@ -11,42 +11,45 @@ app = Flask(__name__)
 # --- ⚙️ کنکشن سٹرنگ ---
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo:XrGKBDHzBwUtYpIgSVolqCFRKGbsUblH@caboose.proxy.rlwy.net:51078/")
 
-# --- 🌐 ایچ ٹی ایم ایل ڈیش بورڈ ---
+# --- 🌐 ایچ ٹی ایم ایل ڈیش بورڈ (Step-by-Step Navigation) ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en" dir="ltr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mongo Explorer</title>
+    <title>Mongo Data Extractor</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .container { max-width: 900px; margin-top: 40px; }
-        .card { background-color: #1e1e1e; border: 1px solid #333; margin-bottom: 15px; border-radius: 10px; }
-        .card-header { background-color: #2c2c2c; border-bottom: 1px solid #333; cursor: pointer; border-radius: 10px 10px 0 0; }
-        .list-group-item { background-color: #1e1e1e; border-color: #333; color: #ccc; }
-        .list-group-item:hover { background-color: #2a2a2a; }
-        .btn-custom { background-color: #00d2ff; color: #000; font-weight: bold; border: none; text-decoration: none; }
+        .container { max-width: 800px; margin-top: 40px; }
+        .list-group-item { background-color: #1e1e1e; border-color: #333; color: #ccc; font-size: 16px; }
+        .list-group-item:hover { background-color: #2a2a2a; color: #fff; }
+        .btn-custom { background-color: #00d2ff; color: #000; font-weight: bold; border: none; text-decoration: none; padding: 6px 15px; border-radius: 5px; }
         .btn-custom:hover { background-color: #00a8cc; color: #fff; }
         .logo-text { text-align: center; color: #fff; margin-bottom: 30px; letter-spacing: 2px; }
         .logo-text span { color: #00d2ff; }
+        .breadcrumb { background: #1e1e1e; padding: 12px 15px; border-radius: 8px; border: 1px solid #333; }
         .breadcrumb-item a { color: #00d2ff; text-decoration: none; }
         .breadcrumb-item.active { color: #888; }
+        .badge-custom { background-color: #333; color: #aaa; font-weight: normal; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2 class="logo-text">Database <span>Explorer</span></h2>
+        <h2 class="logo-text">Database <span>Extractor</span></h2>
         
         <nav aria-label="breadcrumb">
-          <ol class="breadcrumb" style="background: #1e1e1e; padding: 10px; border-radius: 5px; border: 1px solid #333;">
-            <li class="breadcrumb-item"><a href="/">Home (Databases)</a></li>
+          <ol class="breadcrumb mb-4">
+            <li class="breadcrumb-item"><a href="/">Databases</a></li>
             {% if current_db %}
                 <li class="breadcrumb-item"><a href="/db/{{ current_db }}">{{ current_db }}</a></li>
             {% endif %}
             {% if current_coll %}
-                <li class="breadcrumb-item active" aria-current="page">{{ current_coll }}</li>
+                <li class="breadcrumb-item"><a href="/db/{{ current_db }}/{{ current_coll }}">{{ current_coll }}</a></li>
+            {% endif %}
+            {% if current_bot %}
+                <li class="breadcrumb-item active" aria-current="page">{{ current_bot }}</li>
             {% endif %}
           </ol>
         </nav>
@@ -56,66 +59,58 @@ HTML_TEMPLATE = """
         {% endif %}
 
         {% if view == 'dbs' %}
-            <h4 class="mb-3">📂 Available Databases</h4>
+            <h5 class="mb-3" style="color:#00d2ff;">📂 Select Database</h5>
             <div class="list-group">
                 {% for db in items %}
                     <a href="/db/{{ db }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-                        🗄️ {{ db }}
-                        <span class="badge bg-secondary rounded-pill">View Collections ➔</span>
+                        <div>🗄️ <strong>{{ db }}</strong></div>
+                        <span class="badge badge-custom rounded-pill">View Collections ➔</span>
                     </a>
                 {% endfor %}
             </div>
         
         {% elif view == 'colls' %}
-            <h4 class="mb-3">📁 Collections in <span style="color:#00d2ff;">{{ current_db }}</span></h4>
+            <h5 class="mb-3" style="color:#00d2ff;">📁 Select Collection</h5>
             <div class="list-group">
                 {% for coll in items %}
                     <a href="/db/{{ current_db }}/{{ coll }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-                        📄 {{ coll }}
-                        <span class="badge bg-secondary rounded-pill">View Data ➔</span>
+                        <div>📄 <strong>{{ coll }}</strong></div>
+                        <span class="badge badge-custom rounded-pill">View Bots ➔</span>
                     </a>
                 {% endfor %}
             </div>
 
-        {% elif view == 'data' %}
-            <h4 class="mb-3">🤖 Bots & Users in <span style="color:#00d2ff;">{{ current_coll }}</span></h4>
-            
-            {% if sample_keys %}
-                <div class="alert alert-info" style="background-color: #003344; border: none; color: #aaddff; font-size: 13px;">
-                    <strong>Detected Fields in DB:</strong> {{ sample_keys | join(', ') }}
-                </div>
-            {% endif %}
-
-            {% if bots %}
-                <div class="accordion" id="botsAccordion">
-                    {% for bot_id, users in bots.items() %}
-                    <div class="card">
-                        <div class="card-header" data-bs-toggle="collapse" data-bs-target="#collapse_{{ loop.index }}">
-                            <h5 style="margin: 0; color: #00d2ff;">🤖 Bot: {{ bot_id }} <small style="font-size: 14px; color: #888; float: right;">({{ users|length }} users)</small></h5>
-                        </div>
-                        <div id="collapse_{{ loop.index }}" class="collapse" data-bs-parent="#botsAccordion">
-                            <div class="card-body p-0">
-                                <ul class="list-group list-group-flush">
-                                    {% for user in users %}
-                                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                                        <span>👤 {{ user }}</span>
-                                        <a href="/download/{{ current_db }}/{{ current_coll }}/{{ bot_id }}/{{ user }}" class="btn btn-sm btn-custom">⬇️ Download Media</a>
-                                    </li>
-                                    {% endfor %}
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
+        {% elif view == 'bots' %}
+            <h5 class="mb-3" style="color:#00d2ff;">🤖 Select Bot ID</h5>
+            {% if items %}
+                <div class="list-group">
+                    {% for bot in items %}
+                        <a href="/db/{{ current_db }}/{{ current_coll }}/{{ bot }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                            <div>🤖 <strong>{{ bot }}</strong></div>
+                            <span class="badge badge-custom rounded-pill">View Chats ➔</span>
+                        </a>
                     {% endfor %}
                 </div>
             {% else %}
-                <div class="alert alert-warning text-center" style="background-color: #332b00; border: none; color: #ffd700;">
-                    اس کلیکشن میں کوئی بوٹ یا یوزر ڈیٹا نہیں ملا۔
+                <div class="alert alert-warning" style="background-color: #332b00; border: none; color: #ffd700;">اس کلیکشن میں کوئی Bot ID موجود نہیں ہے۔</div>
+            {% endif %}
+
+        {% elif view == 'chats' %}
+            <h5 class="mb-3" style="color:#00d2ff;">💬 Chat IDs for Bot: <span style="color:#fff;">{{ current_bot }}</span></h5>
+            {% if items %}
+                <div class="list-group">
+                    {% for chat in items %}
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>👤 <strong>{{ chat }}</strong></div>
+                            <a href="/download/{{ current_db }}/{{ current_coll }}/{{ current_bot }}/{{ chat }}" class="btn-custom">⬇️ Download Media</a>
+                        </div>
+                    {% endfor %}
                 </div>
+            {% else %}
+                <div class="alert alert-warning" style="background-color: #332b00; border: none; color: #ffd700;">اس بوٹ کے لیے کوئی Chat ID نہیں ملی۔</div>
             {% endif %}
         {% endif %}
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 """
@@ -123,80 +118,64 @@ HTML_TEMPLATE = """
 def get_client():
     return MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 
-# 1. ہوم پیج - تمام Databases دکھائیں
+# 1. Databases دکھائیں
 @app.route('/')
 def index():
     try:
         client = get_client()
         dbs = client.list_database_names()
-        # سسٹم کی کچھ ڈیفالٹ ڈیٹا بیسز چھپانی ہوں تو یہاں سے کر سکتے ہیں
         clean_dbs = [db for db in dbs if db not in ['admin', 'config', 'local']]
         return render_template_string(HTML_TEMPLATE, view='dbs', items=clean_dbs)
     except Exception as e:
-        return render_template_string(HTML_TEMPLATE, error=f"Database connection error: {e}")
+        return render_template_string(HTML_TEMPLATE, error=f"DB Error: {e}")
 
-# 2. ڈیٹا بیس پر کلک - تمام Collections دکھائیں
+# 2. Collections دکھائیں
 @app.route('/db/<db_name>')
 def list_collections(db_name):
     try:
         client = get_client()
-        db = client[db_name]
-        colls = db.list_collection_names()
+        colls = client[db_name].list_collection_names()
         return render_template_string(HTML_TEMPLATE, view='colls', current_db=db_name, items=colls)
     except Exception as e:
-        return render_template_string(HTML_TEMPLATE, error=f"Error reading collections: {e}")
+        return render_template_string(HTML_TEMPLATE, error=f"Error: {e}")
 
-# 3. کلیکشن پر کلک - Bots اور Users دکھائیں
+# 3. تمام Bot IDs دکھائیں
 @app.route('/db/<db_name>/<coll_name>')
-def view_collection(db_name, coll_name):
+def view_bots(db_name, coll_name):
     try:
         client = get_client()
         collection = client[db_name][coll_name]
         
-        # ڈیٹا بیس کا ایک سیمپل چیک کریں تاکہ پتا چلے Go نے کس نام سے فیلڈز سیو کی ہیں
-        sample = collection.find_one()
-        sample_keys = list(sample.keys()) if sample else []
+        # منگو ڈی بی کی distinct کیوری جو صرف منفرد bot_ids لائے گی (بہت تیز ہے)
+        bots = collection.distinct("bot_id")
+        clean_bots = [str(b) for b in bots if b and str(b).strip() != "None"]
 
-        # سمارٹ ڈیٹیکشن (اگر Go نے BotID کیپیٹل میں سیو کیا ہے)
-        bot_field = "BotID" if "BotID" in sample_keys else "bot_id"
-        sender_field = "Sender" if "Sender" in sample_keys else "sender"
-
-        # ایگریگیشن (ڈیٹا کو گروپ کرنے کے لیے)
-        pipeline = [
-            {"$group": {"_id": f"${bot_field}", "users": {"$addToSet": f"${sender_field}"}}},
-            {"$sort": {"_id": 1}}
-        ]
-        
-        results = list(collection.aggregate(pipeline))
-        
-        bots = {}
-        for doc in results:
-            bot_name = str(doc.get("_id", "Unknown"))
-            users_list = [str(u) for u in doc.get("users", []) if u]
-            if users_list:
-                bots[bot_name] = users_list
-
-        return render_template_string(HTML_TEMPLATE, view='data', current_db=db_name, current_coll=coll_name, bots=bots, sample_keys=sample_keys)
+        return render_template_string(HTML_TEMPLATE, view='bots', current_db=db_name, current_coll=coll_name, items=clean_bots)
     except Exception as e:
-        return render_template_string(HTML_TEMPLATE, error=f"Error reading data: {e}", current_db=db_name, current_coll=coll_name)
+        return render_template_string(HTML_TEMPLATE, error=f"Error reading bots: {e}")
 
-# 4. ڈاؤن لوڈ بٹن کا فنکشن
+# 4. مخصوص Bot کی تمام Chat IDs دکھائیں
+@app.route('/db/<db_name>/<coll_name>/<bot_id>')
+def view_chats(db_name, coll_name, bot_id):
+    try:
+        client = get_client()
+        collection = client[db_name][coll_name]
+        
+        # مخصوص bot_id کے اندر موجود منفرد chat_ids لانا
+        chats = collection.distinct("chat_id", {"bot_id": bot_id})
+        clean_chats = [str(c) for c in chats if c and str(c).strip() != "None"]
+
+        return render_template_string(HTML_TEMPLATE, view='chats', current_db=db_name, current_coll=coll_name, current_bot=bot_id, items=clean_chats)
+    except Exception as e:
+        return render_template_string(HTML_TEMPLATE, error=f"Error reading chats: {e}")
+
+# 5. مخصوص Chat ID کا میڈیا ڈاؤن لوڈ کریں
 @app.route('/download/<db_name>/<coll_name>/<bot_id>/<path:target_id>')
 def download_user_data(db_name, coll_name, bot_id, target_id):
     client = get_client()
     collection = client[db_name][coll_name]
 
-    sample = collection.find_one()
-    sample_keys = list(sample.keys()) if sample else []
-    
-    # سمارٹ فیلڈ ڈیٹیکشن
-    b_field = "BotID" if "BotID" in sample_keys else "bot_id"
-    s_field = "Sender" if "Sender" in sample_keys else "sender"
-    t_field = "Type" if "Type" in sample_keys else "type"
-    c_field = "Content" if "Content" in sample_keys else "content"
-    m_field = "MessageID" if "MessageID" in sample_keys else "message_id"
-
-    # فولڈرز بنانا
+    # فائل کے نام کے لیے آئی ڈی کو کلین کرنا
     clean_target = target_id.replace("@", "_").replace(".", "_")
     base_folder = f"/tmp/Export_{bot_id}_{clean_target}"
     
@@ -209,25 +188,30 @@ def download_user_data(db_name, coll_name, bot_id, target_id):
     if os.path.exists(base_folder): shutil.rmtree(base_folder)
     for f_path in folders.values(): os.makedirs(f_path, exist_ok=True)
 
-    # ڈیٹا ڈھونڈنے کی کیوری
-    query = {
-        b_field: bot_id if bot_id != "Unknown" else None,
-        s_field: target_id,
-        t_field: {"$in": ["image", "video", "audio"]}
-    }
-    
+    # ڈیٹا نکالنے کی کیوری
+    query = {"bot_id": bot_id, "chat_id": target_id}
     cursor = collection.find(query)
     has_data = False
 
     for doc in cursor:
-        msg_type = doc.get(t_field)
-        content = doc.get(c_field, "")
-        msg_id = doc.get(m_field, "unknown")
+        msg_type = doc.get("type", "unknown")
+        content = doc.get("content", "")
+        msg_id = doc.get("message_id", "unknown")
+        mime_type = doc.get("mime", "")
 
-        if not content or content == "MEDIA_WAITING" or msg_type not in folders:
+        if not content or content == "MEDIA_WAITING":
             continue
 
-        folder_path = folders[msg_type]
+        folder_path = None
+        if "image" in msg_type or "sticker" in msg_type or "image" in mime_type:
+            folder_path = folders["image"]
+        elif "video" in msg_type or "video" in mime_type:
+            folder_path = folders["video"]
+        elif "audio" in msg_type or "audio" in mime_type:
+            folder_path = folders["audio"]
+            
+        if not folder_path:
+            continue
 
         try:
             if content.startswith("data:"):
@@ -242,7 +226,8 @@ def download_user_data(db_name, coll_name, bot_id, target_id):
 
             elif content.startswith("http"):
                 ext = content.split(".")[-1]
-                if len(ext) > 4: ext = "mp4" if msg_type == "video" else "ogg"
+                if len(ext) > 4: 
+                    ext = mime_type.split("/")[-1] if mime_type else ("mp4" if "video" in folder_path else "ogg")
                 
                 file_path = os.path.join(folder_path, f"{msg_id}.{ext}")
                 response = requests.get(content, stream=True, timeout=15)
@@ -256,7 +241,7 @@ def download_user_data(db_name, coll_name, bot_id, target_id):
 
     if not has_data:
         shutil.rmtree(base_folder)
-        return f"<div style='background:#121212; color:#fff; text-align:center; padding:50px; font-family:sans-serif;'><h2>اس یوزر کے پاس کوئی میڈیا نہیں ہے۔</h2><a href='/db/{db_name}/{coll_name}' style='color:#00d2ff;'>واپس جائیں</a></div>", 404
+        return f"<div style='background:#121212; color:#fff; text-align:center; padding:50px; font-family:sans-serif;'><h2>اس Chat ID کے پاس کوئی میڈیا نہیں ہے۔</h2><a href='/db/{db_name}/{coll_name}/{bot_id}' style='color:#00d2ff;'>واپس جائیں</a></div>", 404
 
     shutil.make_archive(base_folder, 'zip', base_folder)
     zip_path = f"{base_folder}.zip"
